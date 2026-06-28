@@ -4,6 +4,7 @@
 package com.github.vir6ndra.auth_vault.security.filter;
 
 import com.github.vir6ndra.auth_vault.util.JwtUtil;
+import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -38,14 +39,15 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             return;
         }
 
-        String token = authHeader.substring(7);
-        String tokenId = jwtUtil.extractTokenId(token);
+        String token = authHeader.substring(7); // removes: Bearer
+        try{
+            String tokenId = jwtUtil.extractTokenId(token);
 
-        // Check if token is blacklisted in Redis (Logout logic)
-        if (Boolean.TRUE.equals(redisTemplate.hasKey("blacklist:" + tokenId))) {
-            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-            return;
-        }
+            // Check if token is blacklisted in Redis (Logout logic)
+            if (Boolean.TRUE.equals(redisTemplate.hasKey("blacklist:" + tokenId))) {
+                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                return;
+            }
 
 //        if (jwtUtil.isTokenValid(token)) {
 //            String email = jwtUtil.extractEmail(token);
@@ -57,19 +59,25 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 //            SecurityContextHolder.getContext().setAuthentication(authToken);
 //        }
 
-        // ... inside doFilterInternal ...
-        if (jwtUtil.isTokenValid(token)) {
-            String email = jwtUtil.extractEmail(token); // Define email here
+            // ... inside doFilterInternal ...
+            if (jwtUtil.isTokenValid(token)) {
+                String email = jwtUtil.extractEmail(token); // Define email here
 
-            // Ensure you use the instance variable 'userDetailsService' injected via constructor
-            UserDetails userDetails = this.userDetailsService.loadUserByUsername(email);
+                // Ensure you use the instance variable 'userDetailsService' injected via constructor
+                UserDetails userDetails = this.userDetailsService.loadUserByUsername(email);
 
-            UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
-                    userDetails, null, userDetails.getAuthorities());
+//            spring is creating authentication object
+                UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
+                        userDetails, null, userDetails.getAuthorities());
 
-            // This tells Spring: "This person is allowed in"
-            SecurityContextHolder.getContext().setAuthentication(authToken);
-            System.out.println("User: " + email + " Authorities: " + userDetails.getAuthorities());
+                // This tells Spring: "This person is allowed in" and Spring stores authentication in SecurityContext
+//            sercurity contex is Spring Security’s memory of the currently logged-in user for this request.
+                SecurityContextHolder.getContext().setAuthentication(authToken);
+//            System.out.println("User: " + email + " Authorities: " + userDetails.getAuthorities());
+            }
+        }catch(JwtException ex){
+            // Expired / malformed / bad signature — just don't authenticate.
+            // The request continues as "anonymous" and gets a clean 401 if it hits a protected route.
         }
 
 

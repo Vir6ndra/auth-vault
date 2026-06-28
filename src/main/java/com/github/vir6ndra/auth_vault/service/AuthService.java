@@ -118,6 +118,8 @@ import java.util.concurrent.TimeUnit;
 
 @Service
 @RequiredArgsConstructor
+//@Transactional at class level means every method runs inside a DB transaction —
+// either everything saves or nothing does.
 @Transactional
 public class AuthService {
 
@@ -164,7 +166,7 @@ public class AuthService {
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
         // On fresh login: revoke all previous refresh tokens for this user (clean slate)
-        refreshTokenRepository.deleteAllByUserId(user.getId());
+        // refreshTokenRepository.deleteAllByUserId(user.getId());
 
         String accessToken = generateAccessToken(user);
         RefreshToken refreshToken = createRefreshToken(user);
@@ -179,8 +181,16 @@ public class AuthService {
                 .findByToken(refreshTokenValue)
                 .orElseThrow(() -> new RuntimeException("Invalid refresh token"));
 
-        if (stored.isRevoked())
-            throw new RuntimeException("Refresh token has been revoked");
+        if (stored.isRevoked()){
+            // Nuke all active sessions for this user across all devices instantly!
+            refreshTokenRepository.deleteAllByUserId(stored.getUserId());
+            
+            // Log this explicitly for SRE/DevOps monitoring (Grafana/ELK logs)
+            System.err.println("SECURITY ALERT: Refresh token reuse attempt detected for User ID: " + stored.getUserId());
+            
+            throw new RuntimeException("Security Alert: Session anomaly detected. All devices logged out.");
+        }
+            
 
         if (stored.getExpiryDate().isBefore(Instant.now()))
             throw new RuntimeException("Refresh token has expired");
@@ -211,12 +221,13 @@ public class AuthService {
                     .set("blacklist:" + tokenId, "true", ttlMillis, TimeUnit.MILLISECONDS);
         }
 
-        // 2. Revoke only THIS device's refresh token (not all devices)
+        //******* 2. Revoke only THIS device's refresh token (not all devices)
         refreshTokenRepository.findByToken(refreshTokenValue)
                 .ifPresent(token -> {
                     token.setRevoked(true);
                     refreshTokenRepository.save(token);
                 });
+
     }
 
     // ─── FORGOT PASSWORD ─────────────────────────────────────────────────────────
@@ -225,7 +236,7 @@ public class AuthService {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new RuntimeException("No account found with this email"));
 
-        // Invalidate any existing unused reset tokens for this user
+        //***** Invalidate any existing unused reset tokens for this user
         passwordResetTokenRepository.deleteAllByUserId(user.getId());
 
         String token = UUID.randomUUID().toString();
@@ -264,7 +275,7 @@ public class AuthService {
         resetToken.setUsed(true);
         passwordResetTokenRepository.save(resetToken);
 
-        // Revoke all refresh tokens (force re-login on all devices after password change)
+        //**** Revoke all refresh tokens (force re-login on all devices after password change)
         refreshTokenRepository.deleteAllByUserId(user.getId());
     }
 

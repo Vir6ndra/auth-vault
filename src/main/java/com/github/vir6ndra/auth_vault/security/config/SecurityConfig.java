@@ -61,6 +61,7 @@
 ////    }
 //}
 
+//This runs once when the app starts. It sets the rules for the entire application
 
 package com.github.vir6ndra.auth_vault.security.config;
 
@@ -92,6 +93,7 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         return http
                 .csrf(csrf -> csrf.disable())
+                .cors(cors -> {})
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/**", "/oauth2/**").permitAll()
@@ -99,7 +101,7 @@ public class SecurityConfig {
                         .anyRequest().authenticated()
                 )
 
-                // 2. THE FIX: Stop the Redirects
+                // 2. Without this, Spring would redirect you to a login page
                 .exceptionHandling(exception -> exception
                         .authenticationEntryPoint((request, response, authException) -> {
                             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
